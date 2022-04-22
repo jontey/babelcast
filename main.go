@@ -53,13 +53,13 @@ func main() {
 		log.Printf("Publisher password set\n")
 	}
 
-	if *webRootPublisher == *webRootSubscriber {
-		http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(http.Dir(*webRootPublisher)))))
-	}
-	http.Handle("/static/publisher/", http.StripPrefix("/static/publisher/", http.FileServer(http.Dir(http.Dir(*webRootPublisher)))))
-	http.Handle("/static/subscriber/", http.StripPrefix("/static/subscriber/", http.FileServer(http.Dir(http.Dir(*webRootSubscriber)))))
-
 	http.HandleFunc("/ws", wsHandler)
+
+	if *webRootPublisher == *webRootSubscriber {
+		http.Handle("/", http.StripPrefix("/", http.FileServer(http.Dir(http.Dir(*webRootPublisher)))))
+	}
+	http.Handle("/publisher/", http.StripPrefix("/publisher/", http.FileServer(http.Dir(http.Dir(*webRootPublisher)))))
+	http.Handle("/subscriber/", http.StripPrefix("/subscriber/", http.FileServer(http.Dir(http.Dir(*webRootSubscriber)))))
 
 	log.Printf("Listening on port :%d\n", *port)
 
