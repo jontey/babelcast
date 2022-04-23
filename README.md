@@ -38,7 +38,18 @@ getUserMedia() requires a secure connection to be used. otherwise it will return
 We will use Caddy server to create a local https environment
 
 ```
-./caddy reverse-proxy --from <server-ip>:443 --to 127.0.0.1:8080
+# Run the following commands in two separate terminals
+# Windows
+./build/babelcast-windows-amd64.exe
+./build/caddy_windows_amd64.exe reverse-proxy --from 192.168.70.152:443 --to 127.0.0.1:8080
+
+# Mac
+./build/babelcast-darwin-amd64
+./build/caddy_darwin_amd64 reverse-proxy --from 192.168.70.152:443 --to 127.0.0.1:8080
+
+# Linux
+./build/babelcast-linux-amd64
+./build/caddy_linux_amd64 reverse-proxy --from 192.168.70.152:443 --to 127.0.0.1:8080
 ```
 
 Broadcasters should navigate to `https://<server-ip>/` to start broadcasting
