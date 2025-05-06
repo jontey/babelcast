@@ -1,0 +1,23 @@
+services:
+  # Your main application
+  babelcast:
+    build: .
+    network_mode: host
+    depends_on:
+      - stun-server
+
+  # STUN server using coturn
+  stun-server:
+    image: coturn/coturn
+    container_name: coturn-stun
+    restart: unless-stopped
+    network_mode: host
+    command: >
+      -n --log-file=stdout
+      --no-tls
+      --no-dtls
+      --no-auth
+      --stun-only
+      --realm=babelcast.local
+
+

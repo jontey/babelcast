@@ -53,3 +53,35 @@ We will use Caddy server to create a local https environment
 ```
 
 Broadcasters should navigate to `https://<server-ip>/` to start broadcasting
+
+## Docker Setup
+
+Babelcast can be run using Docker Compose, which includes a local STUN server for improved WebRTC connectivity on local networks.
+
+### Prerequisites
+
+- Docker and Docker Compose installed on your system
+
+### Running with Docker Compose
+
+```bash
+# Build and start the containers
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop the containers
+docker-compose down
+```
+
+### Architecture
+
+The Docker Compose setup includes:
+
+1. **Babelcast Application**: Your main application server
+2. **Local STUN Server**: A coturn-based STUN server for WebRTC connectivity
+   - Primary STUN server for local network connections
+   - Falls back to Google's public STUN server if needed
+
+This configuration optimizes for local network usage while maintaining fallback capability for more complex network environments.

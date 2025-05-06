@@ -1,0 +1,30 @@
+# Binaries and build artifacts
+build/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+
+# Git and GitHub files
+.git
+.github
+.gitignore
+
+# Docker files (not needed in the build context)
+.dockerignore
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo

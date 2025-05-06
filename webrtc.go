@@ -47,6 +47,7 @@ func NewPC(offerSd string, onStateChange func(connectionState webrtc.ICEConnecti
 	pc, err = api.NewPeerConnection(webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{
+				// Google's STUN server (fallback)
 				URLs: []string{"stun:stun.l.google.com:19302"},
 			},
 		},
