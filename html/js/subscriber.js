@@ -12,8 +12,13 @@ document.getElementById('reload').addEventListener('click', function() {
 function channelClick(e) {
 	document.getElementById('output').classList.remove('hidden');
 	document.getElementById('channels').classList.add('hidden');
+	
+	// Set the selected channel name in the title
+	const channelName = e.target.innerText;
+	document.getElementById('selected-channel-name').innerText = channelName;
+	
 	let params = {};
-	params.Channel = e.target.innerText;
+	params.Channel = channelName;
 	let val = {Key: 'connect_subscriber', Value: params};
 	wsSend(val);
 };
@@ -69,9 +74,28 @@ ws.onmessage = function (e)	{
 
 ws.onclose = function()	{
 	error("websocket connection closed");
-	pc.close()
-	document.getElementById('media').classList.add('hidden')
+	debug("ws: connection closed");
+	pc.close();
+	document.getElementById('media').classList.add('hidden');
 	clearInterval(getChannelsId);
+	
+	// Attempt to reconnect after a short delay
+	setInterval(function() {
+		debug("Attempting to reconnect...");
+		// Create a new WebSocket and check if it connects successfully
+		let testWs = new WebSocket(ws_uri);
+		
+		testWs.onopen = function() {
+			debug("Connection restored!");
+			// Only reload the page if the connection is successful
+			window.location.reload();
+		};
+		
+		testWs.onerror = function() {
+			debug("Server still unavailable, will retry...");
+			testWs.close();
+		};
+	}, 3000);
 };
 
 //

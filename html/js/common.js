@@ -72,14 +72,7 @@ ws.onopen = function() {
 // -------- WebRTC ------------
 //
 
-var pc = new RTCPeerConnection({
-
-	iceServers: [
-		{
-			urls: 'stun:stun.l.google.com:19302'
-		}
-	]
-})
+var pc = new RTCPeerConnection()
 
 pc.oniceconnectionstatechange = e => {
 	debug("ICE state:", pc.iceConnectionState)

@@ -21,9 +21,13 @@ document.getElementById('input-form').addEventListener('submit', function (e) {
 
 	document.getElementById('output').classList.remove('hidden');
 	document.getElementById('input-form').classList.add('hidden');
+	
+	// Set the selected channel name in the title
+	const channelName = document.getElementById('channel').value;
+	document.getElementById('selected-channel-name').innerText = channelName;
+	
 	let params = {};
-
-	params.Channel = document.getElementById('channel').value;
+	params.Channel = channelName;
 	params.Password = document.getElementById('password').value;
 	let val = {Key: 'connect_publisher', Value: params};
 	wsSend(val);
@@ -40,7 +44,9 @@ document.getElementById('audioInputSelect').addEventListener('change', function 
 		},
 		video: false
 	};
-	soundMeter.stop()
+	if (soundMeter) {
+		soundMeter.stop()
+	}
 	getUserMedia(constraints)
 })
 
@@ -69,14 +75,143 @@ ws.onmessage = function (e)	{
 	}
 };
 
+// Store channel information for reconnection
+var currentChannel = '';
+var currentPassword = '';
+
+// Update the connect_publisher event handler to store channel information
+let originalSubmitHandler = document.getElementById('input-form').onsubmit;
+document.getElementById('input-form').addEventListener('submit', function (e) {
+	currentChannel = document.getElementById('channel').value;
+	currentPassword = document.getElementById('password').value;
+});
+
+// Variable to track reconnection attempts
+var reconnectionInterval = null;
+
 ws.onclose = function()	{
 	error("websocket connection closed");
 	debug("ws: connection closed");
-	if (audioTrack) {
-		audioTrack.stop()
+	
+	// Close the peer connection but don't stop the audio track
+	pc.close();
+	
+	// Only attempt to reconnect if we were previously connected to a channel
+	if (currentChannel) {
+		// Clear any existing reconnection interval
+		if (reconnectionInterval) {
+			clearInterval(reconnectionInterval);
+		}
+		
+		// Attempt to reconnect after a short delay
+		reconnectionInterval = setInterval(function() {
+			debug("Attempting to reconnect...");
+			
+			// Create a new WebSocket and check if it connects successfully
+			let testWs = new WebSocket(ws_uri);
+			
+			testWs.onopen = function() {
+				debug("Connection restored!");
+				
+				// Connection successful, clear the interval
+				clearInterval(reconnectionInterval);
+				reconnectionInterval = null;
+				
+				// Replace the main WebSocket with the test one
+				ws = testWs;
+				
+				// Reinitialize WebSocket event handlers
+				initializeWebSocketHandlers();
+				
+				// Reconnect to the same channel
+				// Set the selected channel name in the title
+				document.getElementById('selected-channel-name').innerText = currentChannel;
+				
+				let params = {
+					Channel: currentChannel,
+					Password: currentPassword
+				};
+				let val = {Key: 'connect_publisher', Value: params};
+				wsSend(val);
+				
+				// Create a new peer connection with the same config as the original
+				pc = new RTCPeerConnection({
+					iceServers: [
+						{
+							urls: 'stun:stun.l.google.com:19302'
+						}
+					]
+				});
+				initializePeerConnection();
+				
+				// Re-add the audio track if it exists
+				if (audioTrack && sender) {
+					sender = pc.addTrack(audioTrack);
+				}
+			};
+			
+			testWs.onerror = function() {
+				debug("Server still unavailable, will retry...");
+				testWs.close();
+			};
+		}, 3000);
+	} else if (audioTrack) {
+		// If we weren't connected to a channel, stop the audio track
+		audioTrack.stop();
+		
+		// Also stop the sound meter if it exists
+		if (soundMeter) {
+			soundMeter.stop();
+		}
 	}
-	pc.close()
 };
+
+// Function to initialize WebSocket event handlers
+function initializeWebSocketHandlers() {
+	ws.onmessage = function (e) {
+		let wsMsg = JSON.parse(e.data);
+		if( 'Key' in wsMsg ) {
+			switch (wsMsg.Key) {
+				case 'info':
+					debug("server info: " + wsMsg.Value);
+					break;
+				case 'error':
+					error("server error", wsMsg.Value);
+					document.getElementById('output').classList.add('hidden');
+					document.getElementById('input-form').classList.add('hidden');
+					break;
+				case 'sd_answer':
+					startSession(wsMsg.Value);
+					break;
+				case 'ice_candidate':
+					pc.addIceCandidate(wsMsg.Value)
+					break;
+				case 'password_required':
+					document.getElementById('password-form').classList.remove('hidden');
+					break;
+			}
+		}
+	};
+	
+	ws.onclose = onclose;
+}
+
+// Function to initialize peer connection event handlers
+function initializePeerConnection() {
+	pc.onicecandidate = function(e) {
+		if (!e.candidate) { return }
+		let val = {Key: 'ice_candidate', Value: e.candidate}
+		wsSend(val);
+	};
+	
+	pc.oniceconnectionstatechange = function() {
+		debug("webrtc: ice connection state: " + pc.iceConnectionState);
+	};
+	
+	pc.ontrack = function(event) {
+		debug("webrtc: ontrack");
+	};
+}
 
 //
 // -------- WebRTC ------------
@@ -110,7 +245,8 @@ function getUserMedia(constraints) {
 			sender.replaceTrack(audioTrack)
 		}
 
-		const soundMeter = new SoundMeter(window.audioContext);
+		// Assign to the global soundMeter variable
+		soundMeter = new SoundMeter(window.audioContext);
 		soundMeter.connectToSource(stream, function(e) {
 			if (e) {
 				alert(e);

@@ -42,6 +42,7 @@ type Conn struct {
 
 	clientID    string
 	isPublisher bool
+	publisherID string // Store the publisher ID for multiple publishers
 }
 
 func NewConn(ws *websocket.Conn) *Conn {
@@ -121,8 +122,22 @@ func (c *Conn) connectPublisher(cmd CmdConnect) error {
 	localTrack := <-c.peer.localTrackChan
 	c.logger.Info("publisher has localTrack")
 
+	// Add the publisher to the registry
 	if err := reg.AddPublisher(c.channelName, localTrack); err != nil {
 		return err
+	}
+
+	// Get the channel to find our publisher ID
+	channel := reg.GetChannel(c.channelName)
+	if channel != nil {
+		// Find our publisher ID by matching the localTrack
+		for id, publisher := range channel.Publishers {
+			if publisher.LocalTrack == localTrack {
+				c.publisherID = id
+				c.logger.Info("publisher ID set", "publisher_id", c.publisherID)
+				break
+			}
+		}
 	}
 
 	return nil
@@ -136,7 +151,13 @@ func (c *Conn) Close() {
 		return
 	}
 	if c.isPublisher {
-		reg.RemovePublisher(c.channelName)
+		// Use the specific publisher ID when removing a publisher
+		if c.publisherID != "" {
+			reg.RemoveSpecificPublisher(c.channelName, c.publisherID)
+		} else {
+			// Fallback to removing all publishers if publisherID is not set
+			reg.RemovePublisher(c.channelName)
+		}
 	} else {
 		reg.RemoveSubscriber(c.channelName, c.clientID)
 	}

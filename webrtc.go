@@ -16,6 +16,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 
@@ -82,27 +83,38 @@ func (wp *WebRTCPeer) SetupPublisher(offer webrtc.SessionDescription, onStateCha
 // Earlier we called webrtc.SetRemoteDescription() to allow ICE to kick off
 func (wp *WebRTCPeer) SetupSubscriber(channel *Channel, onStateChange func(connectionState webrtc.ICEConnectionState), onIceCandidate func(c *webrtc.ICECandidate)) (answer webrtc.SessionDescription, err error) {
 
-	rtpSender, addTrackErr := wp.pc.AddTrack(channel.LocalTrack)
-	if addTrackErr != nil {
-		err = addTrackErr
-		return
+	// Add tracks from all publishers in the channel
+	var rtpSenders []*webrtc.RTPSender
+	for publisherID, publisher := range channel.Publishers {
+		rtpSender, addTrackErr := wp.pc.AddTrack(publisher.LocalTrack)
+		if addTrackErr != nil {
+			slog.Error("Failed to add track from publisher", "publisher_id", publisherID, "err", addTrackErr)
+			continue
+		}
+		rtpSenders = append(rtpSenders, rtpSender)
 	}
 
-	// Read incoming RTCP packets
+	if len(rtpSenders) == 0 {
+		return answer, fmt.Errorf("no valid publishers found in channel")
+	}
+
+	// Read incoming RTCP packets for each sender
 	// Before these packets are returned they are processed by interceptors. For things
 	// like NACK this needs to be called.
-	go func() {
-		rtcpBuf := make([]byte, 1500)
-		for {
-			_, _, rtcpErr := rtpSender.Read(rtcpBuf)
-			if rtcpErr != nil {
-				if !errors.Is(rtcpErr, io.EOF) {
-					slog.Error("rtpSender.Read error", "err", rtcpErr)
+	for _, rtpSender := range rtpSenders {
+		go func(sender *webrtc.RTPSender) {
+			rtcpBuf := make([]byte, 1500)
+			for {
+				_, _, rtcpErr := sender.Read(rtcpBuf)
+				if rtcpErr != nil {
+					if !errors.Is(rtcpErr, io.EOF) {
+						slog.Error("rtpSender.Read error", "err", rtcpErr)
+					}
+					return
 				}
-				return
 			}
-		}
-	}()
+		}(rtpSender)
+	}
 
 	wp.pc.OnICEConnectionStateChange(onStateChange)
 	wp.pc.OnICECandidate(onIceCandidate)
