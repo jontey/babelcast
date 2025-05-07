@@ -36,7 +36,7 @@ func NewWebRTCPeer() (*WebRTCPeer, error) {
 		ICEServers: []webrtc.ICEServer{
 			{
 				// Google's STUN server (fallback)
-				URLs: []string{"stun:stun.l.google.com:19302"},
+				// URLs: []string{"stun:stun.l.google.com:19302"},
 			},
 		},
 	})
