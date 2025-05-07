@@ -15,36 +15,24 @@ limitations under the License.
 package main
 
 import (
-	"math/rand"
+	"errors"
+	"io"
+	"log/slog"
 
-	//"github.com/pion/ice"
-	"github.com/pion/webrtc/v2"
+	"github.com/pion/webrtc/v4"
 )
 
 type WebRTCPeer struct {
-	pc    *webrtc.PeerConnection
-	track *webrtc.Track
+	pc             *webrtc.PeerConnection
+	localTrackChan chan *webrtc.TrackLocalStaticRTP
 }
 
-func (w *WebRTCPeer) Close() error {
-	return w.pc.Close()
-}
-
-func NewPC(offerSd string, onStateChange func(connectionState webrtc.ICEConnectionState), onTrack func(track *webrtc.Track, receiver *webrtc.RTPReceiver)) (*WebRTCPeer, error) {
+func NewWebRTCPeer() (*WebRTCPeer, error) {
 
 	var err error
-	var pc *webrtc.PeerConnection
-	var opusTrack *webrtc.Track
-	var peer *WebRTCPeer
-
-	// Register only audio codec (Opus)
-	m := webrtc.MediaEngine{}
-	m.RegisterCodec(webrtc.NewRTPOpusCodec(webrtc.DefaultPayloadTypeOpus, 48000))
-
-	api := webrtc.NewAPI(webrtc.WithMediaEngine(m))
-
+	wp := &WebRTCPeer{}
 	// Create a new RTCPeerConnection
-	pc, err = api.NewPeerConnection(webrtc.Configuration{
+	wp.pc, err = webrtc.NewPeerConnection(webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{
 				// Google's STUN server (fallback)
@@ -55,30 +43,81 @@ func NewPC(offerSd string, onStateChange func(connectionState webrtc.ICEConnecti
 	if err != nil {
 		return nil, err
 	}
+	wp.localTrackChan = make(chan *webrtc.TrackLocalStaticRTP)
 
-	pc.OnICEConnectionStateChange(onStateChange)
+	return wp, nil
+}
 
-	pc.OnTrack(onTrack)
-	// Create a audio track
-	opusTrack, err = pc.NewTrack(webrtc.DefaultPayloadTypeOpus, rand.Uint32(), "audio", "babelcast")
-	if err != nil {
-		return nil, err
+func (wp *WebRTCPeer) SetupPublisher(offer webrtc.SessionDescription, onStateChange func(connectionState webrtc.ICEConnectionState), onTrack func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver), onIceCandidate func(c *webrtc.ICECandidate)) (answer webrtc.SessionDescription, err error) {
+
+	// Allow us to receive 1 audio track
+	if _, err = wp.pc.AddTransceiverFromKind(webrtc.RTPCodecTypeAudio); err != nil {
+		return
 	}
-	_, err = pc.AddTrack(opusTrack)
-	if err != nil {
-		return nil, err
-	}
+
+	wp.pc.OnICEConnectionStateChange(onStateChange)
+	wp.pc.OnTrack(onTrack)
+	wp.pc.OnICECandidate(onIceCandidate)
 
 	// Set the remote SessionDescription
-	offer := webrtc.SessionDescription{
-		Type: webrtc.SDPTypeOffer,
-		SDP:  offerSd,
-	}
-	if err := pc.SetRemoteDescription(offer); err != nil {
-		return nil, err
+	if err = wp.pc.SetRemoteDescription(offer); err != nil {
+		return
 	}
 
-	peer = &WebRTCPeer{pc: pc, track: opusTrack}
+	// Sets the LocalDescription, and starts our UDP listeners
+	answer, err = wp.pc.CreateAnswer(nil)
+	if err != nil {
+		return
+	}
 
-	return peer, nil
+	err = wp.pc.SetLocalDescription(answer)
+	if err != nil {
+		return
+	}
+
+	return
+}
+
+// SetupSubscriber completes the subscriber WebRTC session setup.
+// Earlier we called webrtc.SetRemoteDescription() to allow ICE to kick off
+func (wp *WebRTCPeer) SetupSubscriber(channel *Channel, onStateChange func(connectionState webrtc.ICEConnectionState), onIceCandidate func(c *webrtc.ICECandidate)) (answer webrtc.SessionDescription, err error) {
+
+	rtpSender, addTrackErr := wp.pc.AddTrack(channel.LocalTrack)
+	if addTrackErr != nil {
+		err = addTrackErr
+		return
+	}
+
+	// Read incoming RTCP packets
+	// Before these packets are returned they are processed by interceptors. For things
+	// like NACK this needs to be called.
+	go func() {
+		rtcpBuf := make([]byte, 1500)
+		for {
+			_, _, rtcpErr := rtpSender.Read(rtcpBuf)
+			if rtcpErr != nil {
+				if !errors.Is(rtcpErr, io.EOF) {
+					slog.Error("rtpSender.Read error", "err", rtcpErr)
+				}
+				return
+			}
+		}
+	}()
+
+	wp.pc.OnICEConnectionStateChange(onStateChange)
+	wp.pc.OnICECandidate(onIceCandidate)
+
+	// Sets the LocalDescription, and starts our UDP listeners
+	answer, err = wp.pc.CreateAnswer(nil)
+	if err != nil {
+		return
+	}
+
+	ldErr := wp.pc.SetLocalDescription(answer)
+	if ldErr != nil {
+		err = ldErr
+		return
+	}
+
+	return
 }

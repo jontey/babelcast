@@ -9,6 +9,10 @@ A translator would act as a publisher and people wanting to hear the translation
 
 ## Developing
 
+Download a [precompiled binary](https://github.com/porjo/babelcast/releases/latest) or build it yourself.
+
+Or if you want to build from source:
+
 Requires Go >= 1.11
 
 ```
@@ -18,18 +22,22 @@ go run .
 
 ```
 Usage of ./babelcast:
+  -debug
+        enable debug log
   -port int
-    	listen on this port (default 8080)
-  -webRootPublisher string
-    	web root directory for publisher (default "html")
-  -webRootSubscriber string
-    	web root directory for subscribers (default "html")
+        listen on this port (default 8080)
 ```
 
-Users should point their web browser to `http://<server-ip>:8080/static/`
+Then point your web browser to `http://localhost:8080/`
 
 If the `PUBLISHER_PASSWORD` environment variable is set, then publishers will be required to enter the
 password before they can connect.
+
+### TLS
+
+Except when testing against localhost, web browsers require that TLS (`https://`) be in use any time media devices (e.g. microphone) are in use. You should put Babelcast behind a reverse proxy that can provide SSL certificates e.g. [Caddy](https://github.com/caddyserver/caddy).
+
+See this [Stackoverflow post](https://stackoverflow.com/a/34198101/202311) for more information.
 
 ## Usage for LAN broadcasting
 
@@ -85,3 +93,7 @@ The Docker Compose setup includes:
    - Falls back to Google's public STUN server if needed
 
 This configuration optimizes for local network usage while maintaining fallback capability for more complex network environments.
+
+## Credit
+
+Thanks to the excellent [Pion](https://github.com/pion/webrtc) library for making WebRTC so accessible.

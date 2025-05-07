@@ -17,51 +17,55 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
-
-	"go.nanomsg.org/mangos/v3"
-	"go.nanomsg.org/mangos/v3/protocol/pub"
-
-	// register transports
-	_ "go.nanomsg.org/mangos/v3/transport/inproc"
 )
 
 const httpTimeout = 15 * time.Second
 
-var pubSocket mangos.Socket
-var publisherPassword = ""
+var (
+	publisherPassword = ""
 
-var reg *Registry
+	reg *Registry
+)
 
 func main() {
-	webRootPublisher := flag.String("webRootPublisher", "html", "web root directory for publisher")
-	webRootSubscriber := flag.String("webRootSubscriber", "html", "web root directory for subscribers")
 	port := flag.Int("port", 8080, "listen on this port")
+	debug := flag.Bool("debug", false, "enable debug log")
 	flag.Parse()
 
-	log.Printf("Starting server...\n")
-	log.Printf("Set publisher web root: %s\n", *webRootPublisher)
-	log.Printf("Set subscriber web root: %s\n", *webRootSubscriber)
+	var programLevel = new(slog.LevelVar) // Info by default
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: programLevel}))
+	slog.SetDefault(logger)
+
+	if *debug {
+		programLevel.Set(slog.LevelDebug)
+	}
+
+	/*
+		file, _ := os.Create("./cpu.pprof")
+		pprof.StartCPUProfile(file)
+		defer pprof.StopCPUProfile()
+	*/
+
+	slog.Info("starting server")
 
 	publisherPassword = os.Getenv("PUBLISHER_PASSWORD")
 	if publisherPassword != "" {
-		log.Printf("Publisher password set\n")
+		slog.Info("publisher password set")
 	}
 
 	http.HandleFunc("/ws", wsHandler)
+	http.Handle("/", http.FileServer(http.FS(embedContentHtml)))
 
-	if *webRootPublisher == *webRootSubscriber {
-		http.Handle("/", http.StripPrefix("/", http.FileServer(http.Dir(http.Dir(*webRootPublisher)))))
-	}
-	http.Handle("/publisher/", http.StripPrefix("/publisher/", http.FileServer(http.Dir(http.Dir(*webRootPublisher)))))
-	http.Handle("/subscriber/", http.StripPrefix("/subscriber/", http.FileServer(http.Dir(http.Dir(*webRootSubscriber)))))
-
-	log.Printf("Listening on port :%d\n", *port)
+	slog.Info("listening on port", "port", *port)
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", *port),
@@ -69,15 +73,29 @@ func main() {
 		ReadTimeout:  httpTimeout,
 	}
 
-	var err error
-	if pubSocket, err = pub.NewSocket(); err != nil {
-		log.Fatalf("can't get new pub socket: %s", err)
-	}
-	if err = pubSocket.Listen("inproc://babelcast/"); err != nil {
-		log.Fatalf("can't listen on pub socket: %s", err)
-	}
-
 	reg = NewRegistry()
 
-	log.Fatal(srv.ListenAndServe())
+	go func() {
+		err := srv.ListenAndServe()
+		if err != nil && err != http.ErrServerClosed {
+			slog.Error("error starting server", "err", err)
+		}
+	}()
+
+	// trap sigterm or interrupt and gracefully shutdown the server
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT)
+	signal.Notify(sigChan, syscall.SIGTERM)
+
+	// block until a signal is received
+	sig := <-sigChan
+	slog.Info("got signal", "sig", sig)
+	slog.Info("shutting down")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		slog.Error("graceful shutdown failed", "err", err)
+		os.Exit(1)
+	}
 }
